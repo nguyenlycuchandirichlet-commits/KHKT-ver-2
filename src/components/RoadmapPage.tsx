@@ -309,7 +309,7 @@ export default function RoadmapPage({
   const progressPct = Math.round((completedCount / 7) * 100);
 
   return (
-    <div className={`min-h-screen px-4 pt-24 pb-16 sm:px-6 ${screenShake ? 'animate-screen-shake' : ''}`}>
+    <div className={`min-h-[100dvh] px-4 pt-24 pb-24 sm:px-6 sm:pb-16 ${screenShake ? 'animate-screen-shake' : ''}`}>
       <LavaBurstEffect trigger={lavaBurst} />
       <div className="mx-auto max-w-5xl">
         {/* Header */}

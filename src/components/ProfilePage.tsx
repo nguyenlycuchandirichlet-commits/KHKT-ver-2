@@ -105,7 +105,7 @@ export default function ProfilePage({
   }
 
   return (
-    <div className="min-h-screen px-4 pt-24 pb-16 sm:px-6">
+    <div className="min-h-[100dvh] px-4 pt-24 pb-24 sm:px-6 sm:pb-16">
       <div className="mx-auto max-w-3xl">
         <button
           onClick={() => onNavigate('workspace')}

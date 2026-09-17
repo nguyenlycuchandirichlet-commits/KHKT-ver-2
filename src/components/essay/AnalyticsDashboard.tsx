@@ -264,7 +264,7 @@ export default function AnalyticsDashboard({
   // --- Violation/Spam banner ---
   if (isViolation) {
     return (
-      <div className="min-h-screen px-4 pt-24 pb-16 sm:px-6">
+      <div className="min-h-[100dvh] px-4 pt-24 pb-24 sm:px-6 sm:pb-16">
         <div className="mx-auto max-w-2xl">
           <div className="rounded-3xl bg-red-50 p-8 text-center shadow-lg dark:bg-red-900/20 animate-scale-in">
             <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-red-100 dark:bg-red-900/40">
@@ -290,7 +290,7 @@ export default function AnalyticsDashboard({
   }
 
   return (
-    <div className="min-h-screen px-4 pt-24 pb-16 sm:px-6">
+    <div className="min-h-[100dvh] px-4 pt-24 pb-24 sm:px-6 sm:pb-16">
       <FireworksOverlay trigger={fireworks} onDone={() => setFireworks(false)} />
       <div className="mx-auto max-w-6xl">
         {/* Header */}

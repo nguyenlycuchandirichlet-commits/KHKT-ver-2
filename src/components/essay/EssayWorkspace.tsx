@@ -304,7 +304,7 @@ export default function EssayWorkspace({
 
   return (
     <div
-      className="min-h-screen select-none pt-20 pb-8"
+      className="min-h-[100dvh] select-none pt-20 pb-24 sm:pb-12"
       onContextMenu={(e) => e.preventDefault()}
       style={{
         backgroundImage: `repeating-linear-gradient(45deg, transparent, transparent 200px, rgba(148,163,184,0.03) 200px, rgba(148,163,184,0.03) 400px)`,
