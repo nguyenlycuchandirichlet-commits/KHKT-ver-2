@@ -20,6 +20,7 @@ import {
   Loader2,
   Menu,
   X,
+  Shield,
 } from 'lucide-react';
 import type { Page } from '@/lib/pages';
 
@@ -38,7 +39,7 @@ export default function TopNav({
   onHome: () => void;
   canGoBack: boolean;
 }) {
-  const { user, profile } = useAuth();
+  const { user, profile, isAdmin } = useAuth();
   const { accounts, activeAccountId, switchAccount, switching } = useMultiAccount();
   const { theme, toggleTheme } = useTheme();
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -158,30 +159,41 @@ export default function TopNav({
 
             {/* Desktop nav buttons (hidden on mobile) */}
             <div className="hidden items-center gap-2 sm:flex">
-              <button
-                onClick={() => onNavigate(user ? 'roadmap' : 'auth')}
-                className={navButtonClass(current === 'roadmap')}
-              >
-                <Mountain className="h-4 w-4" />
-                <span>Lộ trình</span>
-              </button>
+              {isAdmin ? (
+                <button
+                  onClick={() => onNavigate('admin')}
+                  className={navButtonClass(current === 'admin')}
+                >
+                  <Shield className="h-4 w-4" />
+                  <span>Quản trị</span>
+                </button>
+              ) : (
+                <>
+                  <button
+                    onClick={() => onNavigate(user ? 'roadmap' : 'auth')}
+                    className={navButtonClass(current === 'roadmap')}
+                  >
+                    <Mountain className="h-4 w-4" />
+                    <span>Lộ trình</span>
+                  </button>
 
-              <button
-                onClick={() => onNavigate(user ? 'arena' : 'auth')}
-                className={navButtonClass(current === 'arena')}
-              >
-                <Trophy className="h-4 w-4" />
-                <span>Sân đấu</span>
-              </button>
+                  <button
+                    onClick={() => onNavigate(user ? 'arena' : 'auth')}
+                    className={navButtonClass(current === 'arena')}
+                  >
+                    <Trophy className="h-4 w-4" />
+                    <span>Sân đấu</span>
+                  </button>
 
-              <button
-                onClick={() => onNavigate(user ? 'history' : 'auth')}
-                className={navButtonClass(current === 'history')}
-              >
-                <History className="h-4 w-4" />
-                <span>Lịch sử</span>
-              </button>
-
+                  <button
+                    onClick={() => onNavigate(user ? 'history' : 'auth')}
+                    className={navButtonClass(current === 'history')}
+                  >
+                    <History className="h-4 w-4" />
+                    <span>Lịch sử</span>
+                  </button>
+                </>
+              )}
               <button
                 onClick={() => (user ? setSettingsOpen(true) : onNavigate('auth'))}
                 className={navButtonClass(settingsOpen)}
@@ -208,36 +220,51 @@ export default function TopNav({
               {mobileMenuOpen && (
                 <div className="absolute right-0 top-full mt-2 w-56 overflow-hidden rounded-2xl bg-white shadow-2xl ring-1 ring-slate-200/60 animate-scale-in dark:bg-slate-900 dark:ring-slate-700/60">
                   <div className="p-2">
-                    <button
-                      onClick={() => {
-                        setMobileMenuOpen(false);
-                        onNavigate(user ? 'roadmap' : 'auth');
-                      }}
-                      className={mobileMenuItemClass(current === 'roadmap')}
-                    >
-                      <Mountain className="h-4 w-4" />
-                      Lộ trình
-                    </button>
-                    <button
-                      onClick={() => {
-                        setMobileMenuOpen(false);
-                        onNavigate(user ? 'arena' : 'auth');
-                      }}
-                      className={mobileMenuItemClass(current === 'arena')}
-                    >
-                      <Trophy className="h-4 w-4" />
-                      Sân đấu
-                    </button>
-                    <button
-                      onClick={() => {
-                        setMobileMenuOpen(false);
-                        onNavigate(user ? 'history' : 'auth');
-                      }}
-                      className={mobileMenuItemClass(current === 'history')}
-                    >
-                      <History className="h-4 w-4" />
-                      Lịch sử làm bài
-                    </button>
+                    {isAdmin ? (
+                      <button
+                        onClick={() => {
+                          setMobileMenuOpen(false);
+                          onNavigate('admin');
+                        }}
+                        className={mobileMenuItemClass(current === 'admin')}
+                      >
+                        <Shield className="h-4 w-4" />
+                        Bảng quản trị
+                      </button>
+                    ) : (
+                      <>
+                        <button
+                          onClick={() => {
+                            setMobileMenuOpen(false);
+                            onNavigate(user ? 'roadmap' : 'auth');
+                          }}
+                          className={mobileMenuItemClass(current === 'roadmap')}
+                        >
+                          <Mountain className="h-4 w-4" />
+                          Lộ trình
+                        </button>
+                        <button
+                          onClick={() => {
+                            setMobileMenuOpen(false);
+                            onNavigate(user ? 'arena' : 'auth');
+                          }}
+                          className={mobileMenuItemClass(current === 'arena')}
+                        >
+                          <Trophy className="h-4 w-4" />
+                          Sân đấu
+                        </button>
+                        <button
+                          onClick={() => {
+                            setMobileMenuOpen(false);
+                            onNavigate(user ? 'history' : 'auth');
+                          }}
+                          className={mobileMenuItemClass(current === 'history')}
+                        >
+                          <History className="h-4 w-4" />
+                          Lịch sử làm bài
+                        </button>
+                      </>
+                    )}
                     <button
                       onClick={() => {
                         setMobileMenuOpen(false);

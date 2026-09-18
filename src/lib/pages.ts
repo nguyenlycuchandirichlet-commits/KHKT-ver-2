@@ -5,4 +5,5 @@ export type Page =
   | 'profile'
   | 'history'
   | 'roadmap'
-  | 'arena';
+  | 'arena'
+  | 'admin';

@@ -11,14 +11,15 @@ import ProfilePage from '@/components/ProfilePage';
 import HistoryPage from '@/components/HistoryPage';
 import RoadmapPage from '@/components/RoadmapPage';
 import ArenaPage from '@/components/ArenaPage';
+import AdminDashboard from '@/components/AdminDashboard';
 import type { Page } from '@/lib/pages';
 
 // Trang nội bộ (hiển thị nút Trang chủ / Quay lại)
-const INTERNAL_PAGES: Page[] = ['workspace', 'profile', 'history', 'roadmap', 'arena'];
+const INTERNAL_PAGES: Page[] = ['workspace', 'profile', 'history', 'roadmap', 'arena', 'admin'];
 
 function AppShell() {
   const { theme } = useTheme();
-  const { user, loading } = useAuth();
+  const { user, loading, isAdmin } = useAuth();
   const [page, setPage] = useState<Page>('landing');
   const [history, setHistory] = useState<Page[]>([]);
 
@@ -26,17 +27,21 @@ function AppShell() {
     if (loading) return;
     if (user && (page === 'landing' || page === 'auth')) {
       setHistory([]);
-      setPage('workspace');
+      setPage(isAdmin ? 'admin' : 'workspace');
     }
     if (
       !user &&
-      (page === 'workspace' || page === 'profile' || page === 'history' || page === 'roadmap' || page === 'arena')
+      (page === 'workspace' || page === 'profile' || page === 'history' || page === 'roadmap' || page === 'arena' || page === 'admin')
     ) {
       setHistory([]);
       setPage('landing');
     }
+    if (!isAdmin && page === 'admin') {
+      setHistory([]);
+      setPage('workspace');
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user, loading]);
+  }, [user, loading, isAdmin]);
 
   const navigate = useCallback(
     (p: Page) => {
@@ -44,8 +49,11 @@ function AppShell() {
         setPage('auth');
         return;
       }
+      if (p === 'admin' && !isAdmin) {
+        return;
+      }
       if (p === 'auth' && user) {
-        setPage('workspace');
+        setPage(isAdmin ? 'admin' : 'workspace');
         return;
       }
       setHistory((prev) => [...prev, page]);
@@ -69,8 +77,8 @@ function AppShell() {
 
   const goHome = useCallback(() => {
     setHistory([]);
-    setPage(user ? 'workspace' : 'landing');
-  }, [user]);
+    setPage(user ? (isAdmin ? 'admin' : 'workspace') : 'landing');
+  }, [user, isAdmin]);
 
   const isInternal = INTERNAL_PAGES.includes(page);
 
@@ -111,11 +119,12 @@ function AppShell() {
       />
       <main>
         {page === 'landing' && <LandingHero onNavigate={navigate} />}
-        {page === 'workspace' && user && <WorkspacePage onNavigate={navigate} />}
-        {page === 'profile' && user && <ProfilePage onNavigate={navigate} />}
-        {page === 'history' && user && <HistoryPage onNavigate={navigate} />}
-        {page === 'roadmap' && user && <RoadmapPage onNavigate={navigate} />}
-        {page === 'arena' && user && <ArenaPage onNavigate={navigate} />}
+        {page === 'workspace' && user && !isAdmin && <WorkspacePage onNavigate={navigate} />}
+        {page === 'profile' && user && !isAdmin && <ProfilePage onNavigate={navigate} />}
+        {page === 'history' && user && !isAdmin && <HistoryPage onNavigate={navigate} />}
+        {page === 'roadmap' && user && !isAdmin && <RoadmapPage onNavigate={navigate} />}
+        {page === 'arena' && user && !isAdmin && <ArenaPage onNavigate={navigate} />}
+        {page === 'admin' && user && isAdmin && <AdminDashboard onNavigate={navigate} />}
       </main>
     </>
   );

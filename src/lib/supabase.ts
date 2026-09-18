@@ -33,6 +33,7 @@ export type Profile = {
   streak_days?: number;
   roadmap_day?: number;
   last_session_date?: string | null;
+  role?: 'student' | 'admin';
 };
 
 export type ExperimentSession = {
