@@ -38,71 +38,9 @@ Deno.serve(async (req: Request) => {
 
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-
-    const adminClient = createClient(supabaseUrl, serviceRoleKey, {
-      auth: { autoRefreshToken: false, persistSession: false },
-    });
-
-    // Check if admin auth user exists
-    const { data: existingUsers } = await adminClient.auth.admin.listUsers();
-    const adminUser = (existingUsers?.users || []).find(
-      (u) => u.email === ADMIN_EMAIL,
-    );
-
-    let adminUserId: string;
-
-    if (adminUser) {
-      // Update password and confirm email
-      const { data: updated, error: updateErr } = await adminClient.auth.admin.updateUserById(
-        adminUser.id,
-        {
-          password: ADMIN_PASSWORD,
-          email_confirm: true,
-        },
-      );
-      if (updateErr) {
-        return new Response(
-          JSON.stringify({ error: `Không thể cập nhật admin: ${updateErr.message}` }),
-          { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } },
-        );
-      }
-      adminUserId = updated.user.id;
-    } else {
-      // Create admin auth user
-      const { data: created, error: createErr } = await adminClient.auth.admin.createUser({
-        email: ADMIN_EMAIL,
-        password: ADMIN_PASSWORD,
-        email_confirm: true,
-        user_metadata: {
-          full_name: "Administrator",
-          username: "Admin",
-        },
-      });
-      if (createErr) {
-        return new Response(
-          JSON.stringify({ error: `Không thể tạo admin: ${createErr.message}` }),
-          { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } },
-        );
-      }
-      adminUserId = created.user.id;
-    }
-
-    // Ensure profile row exists with admin role
-    await adminClient
-      .from("profiles")
-      .upsert({
-        id: adminUserId,
-        full_name: "Administrator",
-        username: "Admin",
-        email: ADMIN_EMAIL,
-        role: "admin",
-        province: "System",
-        school: "Administration",
-        class_name: "Admin",
-      }, { onConflict: "id" });
-
-    // Now sign in with the anon-key client to get a proper session
     const anonKey = req.headers.get("apikey") || Deno.env.get("SUPABASE_ANON_KEY")!;
+
+    // Step 1: Try to sign in directly — no user creation needed if the user already exists
     const userClient = createClient(supabaseUrl, anonKey, {
       auth: { autoRefreshToken: false, persistSession: false },
     });
@@ -112,9 +50,81 @@ Deno.serve(async (req: Request) => {
       password: ADMIN_PASSWORD,
     });
 
-    if (signInErr) {
+    if (!signInErr && signInData.session) {
       return new Response(
-        JSON.stringify({ error: `Đăng nhập admin thất bại: ${signInErr.message}` }),
+        JSON.stringify({
+          success: true,
+          session: signInData.session,
+          user: signInData.user,
+        }),
+        { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
+    }
+
+    // Step 2: Sign-in failed — provision the admin user once, then retry sign-in
+    const adminClient = createClient(supabaseUrl, serviceRoleKey, {
+      auth: { autoRefreshToken: false, persistSession: false },
+    });
+
+    // Look up the admin user by email using the admin API (single-user lookup, not listUsers)
+    const { data: profileRow } = await adminClient
+      .from("profiles")
+      .select("id")
+      .eq("email", ADMIN_EMAIL)
+      .maybeSingle();
+
+    let adminUserId = profileRow?.id;
+
+    if (adminUserId) {
+      // User exists in profiles but sign-in failed — update password
+      const { error: updateErr } = await adminClient.auth.admin.updateUserById(
+        adminUserId,
+        { password: ADMIN_PASSWORD, email_confirm: true },
+      );
+      if (updateErr) {
+        return new Response(
+          JSON.stringify({ error: `Không thể cập nhật admin: ${updateErr.message}` }),
+          { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+        );
+      }
+    } else {
+      // No profile row — create the auth user from scratch
+      const { data: created, error: createErr } = await adminClient.auth.admin.createUser({
+        email: ADMIN_EMAIL,
+        password: ADMIN_PASSWORD,
+        email_confirm: true,
+        user_metadata: { full_name: "Administrator", username: "Admin" },
+      });
+      if (createErr) {
+        return new Response(
+          JSON.stringify({ error: `Không thể tạo admin: ${createErr.message}` }),
+          { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+        );
+      }
+      adminUserId = created.user.id;
+
+      // Insert admin profile
+      await adminClient.from("profiles").upsert({
+        id: adminUserId,
+        full_name: "Administrator",
+        username: "Admin",
+        email: ADMIN_EMAIL,
+        role: "admin",
+        province: "System",
+        school: "Administration",
+        class_name: "Admin",
+      }, { onConflict: "id" });
+    }
+
+    // Step 3: Retry sign-in after provisioning
+    const { data: retryData, error: retryErr } = await userClient.auth.signInWithPassword({
+      email: ADMIN_EMAIL,
+      password: ADMIN_PASSWORD,
+    });
+
+    if (retryErr || !retryData.session) {
+      return new Response(
+        JSON.stringify({ error: `Đăng nhập admin thất bại: ${retryErr?.message || "no session"}` }),
         { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } },
       );
     }
@@ -122,8 +132,8 @@ Deno.serve(async (req: Request) => {
     return new Response(
       JSON.stringify({
         success: true,
-        session: signInData.session,
-        user: signInData.user,
+        session: retryData.session,
+        user: retryData.user,
       }),
       { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
     );
