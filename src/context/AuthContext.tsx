@@ -19,12 +19,59 @@ type AuthContextValue = {
   signOut: () => Promise<void>;
 };
 
+const ADMIN_SESSION_KEY = 'khkt-admin-session';
+
+type LocalAdminSession = {
+  role: 'admin';
+  username: string;
+  full_name: string;
+  email: string;
+  loginAt: number;
+};
+
+const ADMIN_PROFILE: Profile = {
+  id: 'admin-local',
+  full_name: 'Administrator',
+  date_of_birth: null,
+  province: 'System',
+  school: 'Administration',
+  class_name: 'Admin',
+  username: 'Admin',
+  email: 'admin@khkt.local',
+  created_at: '',
+  updated_at: '',
+  role: 'admin',
+};
+
+const ADMIN_USER = {
+  id: 'admin-local',
+  aud: 'authenticated',
+  role: 'authenticated',
+  email: 'admin@khkt.local',
+  app_metadata: { provider: 'admin' },
+  user_metadata: { full_name: 'Administrator', username: 'Admin' },
+  created_at: '',
+} as unknown as User;
+
+function getLocalAdmin(): LocalAdminSession | null {
+  try {
+    const raw = localStorage.getItem(ADMIN_SESSION_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as LocalAdminSession;
+    if (parsed.role !== 'admin') return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
   const [loading, setLoading] = useState(true);
+  const [localAdmin, setLocalAdmin] = useState<LocalAdminSession | null>(null);
 
   const loadProfile = useCallback(async (uid: string) => {
     const { data, error } = await supabase
@@ -58,12 +105,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const refreshProfile = useCallback(async () => {
+    if (localAdmin) return;
     if (session?.user) await loadProfile(session.user.id);
-  }, [session, loadProfile]);
+  }, [session, loadProfile, localAdmin]);
 
   useEffect(() => {
     let mounted = true;
     let profileLoading = false;
+
+    // Check for local admin session first
+    const admin = getLocalAdmin();
+    if (admin) {
+      setLocalAdmin(admin);
+      setProfile(ADMIN_PROFILE);
+      setLoading(false);
+      return;
+    }
 
     supabase.auth.getSession().then(({ data }) => {
       if (!mounted) return;
@@ -97,26 +154,45 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
     });
 
+    // Listen for local admin login event
+    const onAdminLogin = () => {
+      if (!mounted) return;
+      const admin = getLocalAdmin();
+      if (admin) {
+        setLocalAdmin(admin);
+        setProfile(ADMIN_PROFILE);
+        setLoading(false);
+      }
+    };
+    window.addEventListener('khkt-admin-login', onAdminLogin);
+
     return () => {
       mounted = false;
       sub.subscription.unsubscribe();
+      window.removeEventListener('khkt-admin-login', onAdminLogin);
     };
   }, [loadProfile]);
 
   const signOut = useCallback(async () => {
+    if (localAdmin) {
+      localStorage.removeItem(ADMIN_SESSION_KEY);
+      setLocalAdmin(null);
+      setProfile(null);
+      return;
+    }
     await supabase.auth.signOut();
     setProfile(null);
     setSession(null);
-  }, []);
+  }, [localAdmin]);
 
   return (
     <AuthContext.Provider
       value={{
-        user: session?.user ?? null,
+        user: localAdmin ? ADMIN_USER : (session?.user ?? null),
         session,
         profile,
         loading,
-        isAdmin: profile?.role === 'admin',
+        isAdmin: !!localAdmin || profile?.role === 'admin',
         refreshProfile,
         signOut,
       }}

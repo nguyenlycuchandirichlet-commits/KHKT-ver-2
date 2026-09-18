@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { supabase, type Profile, type ExperimentSession } from '@/lib/supabase';
+import { type Profile, type ExperimentSession } from '@/lib/supabase';
 import { Button } from '@/components/ui';
 import RadarChart from '@/components/charts/RadarChart';
 import {
@@ -52,6 +52,23 @@ type UserWithStats = Profile & {
   roadmap_days_completed: number;
 };
 
+const ADMIN_DATA_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/admin-data`;
+
+async function adminFetch(body: Record<string, unknown>) {
+  const res = await fetch(ADMIN_DATA_URL, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}`,
+      'apikey': import.meta.env.VITE_SUPABASE_ANON_KEY,
+    },
+    body: JSON.stringify(body),
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || 'Lỗi dữ liệu quản trị');
+  return data;
+}
+
 function formatDate(iso: string): string {
   try {
     return new Date(iso).toLocaleString('vi-VN', {
@@ -95,40 +112,29 @@ export default function AdminDashboard({
     setLoading(true);
     setError('');
     try {
-      const { data: profileData, error: profileErr } = await supabase
-        .from('profiles')
-        .select('*')
-        .order('created_at', { ascending: false });
+      const data = await adminFetch({ action: 'list' }) as {
+        profiles: Profile[];
+        sessions: ExperimentSession[];
+        roadmap: RoadmapProgress[];
+      };
 
-      if (profileErr) throw profileErr;
-
-      const { data: sessionData, error: sessionErr } = await supabase
-        .from('experiment_sessions')
-        .select('*')
-        .order('created_at', { ascending: false });
-
-      if (sessionErr) throw sessionErr;
-
-      const { data: roadmapRaw, error: roadmapErr } = await supabase
-        .from('roadmap_progress')
-        .select('*')
-        .order('day', { ascending: true });
-
-      if (roadmapErr) throw roadmapErr;
+      const profileData = data.profiles || [];
+      const sessionData = data.sessions || [];
+      const roadmapRaw = data.roadmap || [];
 
       const sessionMap: Record<string, ExperimentSession[]> = {};
-      (sessionData as ExperimentSession[] || []).forEach((s) => {
+      sessionData.forEach((s) => {
         if (!sessionMap[s.user_id]) sessionMap[s.user_id] = [];
         sessionMap[s.user_id].push(s);
       });
 
       const roadmapMap: Record<string, RoadmapProgress[]> = {};
-      (roadmapRaw as RoadmapProgress[] || []).forEach((r) => {
+      roadmapRaw.forEach((r) => {
         if (!roadmapMap[r.user_id]) roadmapMap[r.user_id] = [];
         roadmapMap[r.user_id].push(r);
       });
 
-      const usersWithStats: UserWithStats[] = (profileData as Profile[] || []).map((p) => {
+      const usersWithStats: UserWithStats[] = profileData.map((p) => {
         const userSessions = sessionMap[p.id] || [];
         const completed = userSessions.filter((s) => s.status === 'completed');
         const avgScore = completed.length > 0
@@ -175,15 +181,7 @@ export default function AdminDashboard({
     if (!confirm('Xác nhận đặt lại toàn bộ lộ trình của người dùng này?')) return;
     setActionLoading(`reset-${userId}`);
     try {
-      const { error } = await supabase
-        .from('roadmap_progress')
-        .delete()
-        .eq('user_id', userId);
-      if (error) throw error;
-      await supabase
-        .from('profiles')
-        .update({ roadmap_day: 1, rank_points: 0, streak_days: 0 })
-        .eq('id', userId);
+      await adminFetch({ action: 'reset_progress', userId });
       await loadData();
     } catch (cause) {
       const err = cause as { message?: string };
@@ -196,15 +194,7 @@ export default function AdminDashboard({
   const handleUnlockDay = async (userId: string, day: number) => {
     setActionLoading(`unlock-${userId}-${day}`);
     try {
-      const { error } = await supabase
-        .from('roadmap_progress')
-        .upsert({
-          user_id: userId,
-          day,
-          status: 'available',
-          completed_at: null,
-        }, { onConflict: 'user_id,day' });
-      if (error) throw error;
+      await adminFetch({ action: 'unlock_day', userId, day });
       await loadData();
     } catch (cause) {
       const err = cause as { message?: string };
@@ -218,11 +208,7 @@ export default function AdminDashboard({
     if (!confirm('Xoá phiên làm bài này?')) return;
     setActionLoading(`del-${sessionId}`);
     try {
-      const { error } = await supabase
-        .from('experiment_sessions')
-        .delete()
-        .eq('id', sessionId);
-      if (error) throw error;
+      await adminFetch({ action: 'delete_session', sessionId });
       const updated = (sessions[userId] || []).filter((s) => s.id !== sessionId);
       setSessions((prev) => ({ ...prev, [userId]: updated }));
     } catch (cause) {

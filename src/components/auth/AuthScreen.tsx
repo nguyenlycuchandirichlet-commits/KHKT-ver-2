@@ -103,39 +103,16 @@ export default function AuthScreen() {
         loginPass === 'administrators2026@#';
 
       if (isAdminCreds) {
-        // Admin login via edge function (uses service role to provision + authenticate)
-        const apiUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/admin-login`;
-        const response = await fetch(apiUrl, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}`,
-            'apikey': import.meta.env.VITE_SUPABASE_ANON_KEY,
-          },
-          body: JSON.stringify({ username: input, password: loginPass }),
-        });
-
-        if (!response.ok) {
-          const errBody = await response.json().catch(() => ({}));
-          throw new Error(errBody.error || 'Đăng nhập quản trị thất bại.');
-        }
-
-        const result = await response.json();
-        if (!result.success || !result.session) {
-          throw new Error('Không nhận được phiên đăng nhập quản trị.');
-        }
-
-        // Set the session in the client so onAuthStateChange fires
-        const { error: setSessionErr } = await supabase.auth.setSession({
-          access_token: result.session.access_token,
-          refresh_token: result.session.refresh_token,
-        });
-
-        if (setSessionErr) {
-          throw new Error(`Không thể thiết lập phiên: ${setSessionErr.message}`);
-        }
-
-        refreshProfile();
+        // Pure local admin login — no Supabase or API calls
+        const adminSession = {
+          role: 'admin',
+          username: 'Admin',
+          full_name: 'Administrator',
+          email: 'admin@khkt.local',
+          loginAt: Date.now(),
+        };
+        localStorage.setItem('khkt-admin-session', JSON.stringify(adminSession));
+        window.dispatchEvent(new Event('khkt-admin-login'));
         return;
       }
 
