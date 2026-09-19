@@ -1,10 +1,5 @@
 import type { Scores, Telemetry, VocabStats, FeedbackCard } from './scoring';
 
-const OLLAMA_URL = '/ollama/api/generate';
-const OLLAMA_MODEL = 'qwen2.5:3b';
-
-const REQUEST_TIMEOUT_MS = 30000;
-
 export type RoadmapContext = {
   currentDay: number;
   overallScore: number;
@@ -31,48 +26,20 @@ export type EvaluationResult = {
   overallAssessment: string;
 };
 
-async function callOllama(prompt: string, system?: string): Promise<string> {
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+async function callOllama(promptText: string): Promise<string> {
+  const response = await fetch('http://localhost:11434/api/generate', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      model: 'qwen2.5:3b',
+      prompt: promptText,
+      stream: false,
+    }),
+  });
 
-  const fullPrompt = system ? `${system}\n\n${prompt}` : prompt;
-  const requestBody = {
-    model: OLLAMA_MODEL,
-    prompt: fullPrompt,
-    stream: false,
-    options: { temperature: 0.7, num_predict: 512 },
-  };
-
-  console.log('[Ollama] Sending request to', OLLAMA_URL, 'model:', OLLAMA_MODEL);
-
-  try {
-    const res = await fetch(OLLAMA_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(requestBody),
-      signal: controller.signal,
-    });
-
-    clearTimeout(timeout);
-
-    if (!res.ok) {
-      const errText = await res.text().catch(() => '');
-      console.error('[Ollama] HTTP error', res.status, errText);
-      throw new Error(`Ollama HTTP ${res.status}: ${errText}`);
-    }
-
-    const data = await res.json();
-    console.log('[Ollama] Response received, length:', (data.response as string)?.length ?? 0);
-    return data.response as string;
-  } catch (err) {
-    clearTimeout(timeout);
-    if (err instanceof DOMException && err.name === 'AbortError') {
-      console.warn('[Ollama] Request timed out after', REQUEST_TIMEOUT_MS, 'ms');
-    } else {
-      console.warn('[Ollama] Request failed, falling back to mock:', err);
-    }
-    throw err;
-  }
+  if (!response.ok) throw new Error('Ollama offline');
+  const data = await response.json();
+  return data.response;
 }
 
 function parseJSON<T>(raw: string): T | null {
@@ -215,16 +182,13 @@ Hãy tạo lộ trình 7 ngày bắt đầu từ ngày ${ctx.currentDay}, mỗi 
 Chỉ trả về JSON, không thêm giải thích.`;
 
   try {
-    const raw = await callOllama(prompt, 'Bạn là trợ lý AI giáo dục tiếng Việt.');
+    const raw = await callOllama('Bạn là trợ lý AI giáo dục tiếng Việt.\n\n' + prompt);
     const parsed = parseJSON<{ roadmap: RoadmapDay[] }>(raw);
     if (parsed?.roadmap && Array.isArray(parsed.roadmap) && parsed.roadmap.length > 0) {
-      console.log('[Ollama] Roadmap generated successfully, days:', parsed.roadmap.length);
       return parsed.roadmap.slice(0, 7);
     }
-    console.warn('[Ollama] Invalid roadmap response, using mock');
     return MOCK_ROADMAP;
   } catch {
-    console.warn('[Ollama] generateRoadmap fell back to mock data');
     return MOCK_ROADMAP;
   }
 }
@@ -265,16 +229,13 @@ Trả về JSON theo định dạng:
 Chỉ trả về JSON, không thêm giải thích.`;
 
   try {
-    const raw = await callOllama(prompt, 'Bạn là trợ lý AI đánh giá bài viết tiếng Việt.');
+    const raw = await callOllama('Bạn là trợ lý AI đánh giá bài viết tiếng Việt.\n\n' + prompt);
     const parsed = parseJSON<EvaluationResult>(raw);
     if (parsed && parsed.writingStyle && parsed.argumentConsistency) {
-      console.log('[Ollama] Evaluation parsed successfully');
       return parsed;
     }
-    console.warn('[Ollama] Invalid evaluation response, using mock');
     return buildMockEvaluation(text, scores, vocab, telemetry);
   } catch {
-    console.warn('[Ollama] evaluateSubmission fell back to mock evaluation');
     return buildMockEvaluation(text, scores, vocab, telemetry);
   }
 }
