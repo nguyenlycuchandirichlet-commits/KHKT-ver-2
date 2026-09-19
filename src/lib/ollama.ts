@@ -27,7 +27,7 @@ export type EvaluationResult = {
 };
 
 async function callOllama(promptText: string): Promise<string> {
-  const response = await fetch('http://localhost:11434/api/generate', {
+ const response = await fetch('https://matcher-prance-unnamable.ngrok-free.dev/api/generate', {, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
