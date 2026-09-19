@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import type { EssayResult, Scores, Badge, FeedbackCard } from '@/lib/scoring';
+import type { EvaluationResult } from '@/lib/ollama';
 import { getRankTier, getDynamicFeedbackEmojiAnimated } from '@/lib/scoring';
 import RadarChart from '@/components/charts/RadarChart';
 import StackedBarChart from '@/components/charts/StackedBarChart';
@@ -506,6 +507,9 @@ export default function AnalyticsDashboard({
           </div>
         )}
 
+        {/* AI Evaluation — Ollama-powered KHKT analysis */}
+        {result.aiEvaluation && <AIEvaluationPanel eval={result.aiEvaluation} />}
+
         {/* Tổng hợp năng lực */}
         <div className="mb-8 overflow-hidden rounded-3xl bg-gradient-to-br from-slate-900 via-brand-900 to-slate-900 p-6 text-white shadow-lg animate-fade-in-up sm:p-8">
           <div className="mb-5 flex items-center gap-2">
@@ -783,6 +787,91 @@ function AudioWave({ wpm, idleSeconds, wordCount }: { wpm: number; idleSeconds: 
           style={{ height: `${h * 100}%` }}
         />
       ))}
+    </div>
+  );
+}
+
+function AIEvaluationPanel({ eval: aiEval }: { eval: EvaluationResult }) {
+  return (
+    <div className="mb-8 animate-fade-in-up">
+      <div className="mb-4 flex items-center gap-2">
+        <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-violet-500 to-indigo-600">
+          <Sparkles className="h-5 w-5 text-white" />
+        </div>
+        <div>
+          <h3 className="text-lg font-bold text-slate-800 dark:text-slate-100">
+            Đánh giá AI theo tiêu chí KHKT
+          </h3>
+          <p className="text-xs text-slate-400">Phân tích phong cách, lập luận &amp; dấu hiệu phụ thuộc AI</p>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+        <div className="rounded-2xl border border-blue-200/40 bg-blue-50/60 p-5 dark:border-blue-800/30 dark:bg-blue-900/20">
+          <div className="mb-2 flex items-center gap-2">
+            <TrendingUp className="h-4 w-4 text-blue-500" />
+            <h4 className="text-sm font-bold text-slate-700 dark:text-slate-200">Phong cách viết</h4>
+          </div>
+          <p className="text-xs leading-relaxed text-slate-600 dark:text-slate-300">{aiEval.writingStyle}</p>
+        </div>
+
+        <div className="rounded-2xl border border-emerald-200/40 bg-emerald-50/60 p-5 dark:border-emerald-800/30 dark:bg-emerald-900/20">
+          <div className="mb-2 flex items-center gap-2">
+            <Scale className="h-4 w-4 text-emerald-500" />
+            <h4 className="text-sm font-bold text-slate-700 dark:text-slate-200">Nhất quán lập luận</h4>
+          </div>
+          <p className="text-xs leading-relaxed text-slate-600 dark:text-slate-300">{aiEval.argumentConsistency}</p>
+        </div>
+
+        <div className="rounded-2xl border border-amber-200/40 bg-amber-50/60 p-5 dark:border-amber-800/30 dark:bg-amber-900/20">
+          <div className="mb-2 flex items-center gap-2">
+            <AlertTriangle className="h-4 w-4 text-amber-500" />
+            <h4 className="text-sm font-bold text-slate-700 dark:text-slate-200">Semantic Drift</h4>
+          </div>
+          <p className="text-xs leading-relaxed text-slate-600 dark:text-slate-300">{aiEval.semanticDrift}</p>
+        </div>
+      </div>
+
+      {(aiEval.repetitiveWords.length > 0 || aiEval.cliches.length > 0) && (
+        <div className="mt-4 rounded-2xl border border-red-200/40 bg-red-50/60 p-5 dark:border-red-800/30 dark:bg-red-900/20">
+          <div className="mb-3 flex items-center gap-2">
+            <AlertTriangle className="h-4 w-4 text-red-500" />
+            <h4 className="text-sm font-bold text-slate-700 dark:text-slate-200">Phát hiện từ lặp &amp; sáo rỗng</h4>
+          </div>
+          {aiEval.repetitiveWords.length > 0 && (
+            <div className="mb-3">
+              <p className="mb-1 text-xs font-semibold text-slate-500 dark:text-slate-400">Từ lặp lại:</p>
+              <div className="flex flex-wrap gap-2">
+                {aiEval.repetitiveWords.map((w, i) => (
+                  <span key={i} className="rounded-full bg-red-100 px-2.5 py-0.5 text-xs font-medium text-red-600 dark:bg-red-900/40 dark:text-red-400">
+                    {w}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+          {aiEval.cliches.length > 0 && (
+            <div>
+              <p className="mb-1 text-xs font-semibold text-slate-500 dark:text-slate-400">Cụm sáo rỗng / boilerplate AI:</p>
+              <div className="flex flex-wrap gap-2">
+                {aiEval.cliches.map((c, i) => (
+                  <span key={i} className="rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-medium text-amber-700 line-through dark:bg-amber-900/40 dark:text-amber-400">
+                    {c}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      <div className="mt-4 rounded-2xl border border-slate-200/60 bg-white/80 p-5 dark:border-slate-700 dark:bg-slate-800/60">
+        <div className="mb-2 flex items-center gap-2">
+          <Sparkles className="h-4 w-4 text-violet-500" />
+          <h4 className="text-sm font-bold text-slate-700 dark:text-slate-200">Đánh giá tổng quan</h4>
+        </div>
+        <p className="text-xs leading-relaxed text-slate-600 dark:text-slate-300">{aiEval.overallAssessment}</p>
+      </div>
     </div>
   );
 }
