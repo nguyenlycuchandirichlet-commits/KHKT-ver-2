@@ -9,6 +9,7 @@ import {
   type Telemetry,
   type EssayResult,
 } from '@/lib/scoring';
+import { evaluateSubmission, type EvaluationResult } from '@/lib/ollama';
 import { Button } from '@/components/ui';
 import {
   Clock,
@@ -238,7 +239,9 @@ export default function EssayWorkspace({
     setTimeout(() => setShake(false), 600);
   };
 
-  const handleFinish = (_timedOut = false) => {
+  const [aiEvaluating, setAiEvaluating] = useState(false);
+
+  const handleFinish = async (_timedOut = false) => {
     const telemetry = computeTelemetry();
     const {
       scores, vocab, overall, badges,
@@ -255,6 +258,17 @@ export default function EssayWorkspace({
       setTimeout(() => setSpamToast(null), 4000);
     }
 
+    let aiEvaluation: EvaluationResult | undefined;
+    if (!isSpam && !isViolation) {
+      setAiEvaluating(true);
+      try {
+        aiEvaluation = await evaluateSubmission(textRef.current, scores, vocab, telemetry);
+      } catch {
+        // Fallback already handled inside evaluateSubmission
+      }
+      setAiEvaluating(false);
+    }
+
     const result: EssayResult = {
       text: textRef.current,
       telemetry,
@@ -267,6 +281,7 @@ export default function EssayWorkspace({
       violationReason,
       rankPoints,
       feedback,
+      aiEvaluation,
     };
     onComplete(result);
   };
@@ -507,12 +522,22 @@ export default function EssayWorkspace({
         <div className="mt-6 flex justify-end">
           <button
             onClick={handleSubmit}
+            disabled={aiEvaluating}
             className={`flex items-center gap-2 rounded-xl bg-gradient-to-r from-brand-600 to-brand-700 px-8 py-3 text-sm font-bold text-white shadow-lg transition hover:from-brand-700 hover:to-brand-800 hover:shadow-xl ${
               shake ? 'animate-shake' : ''
-            }`}
+            } ${aiEvaluating ? 'opacity-60' : ''}`}
           >
-            <Send className="h-4 w-4" />
-            Nộp bài / Flex kết quả
+            {aiEvaluating ? (
+              <>
+                <RefreshCw className="h-4 w-4 animate-spin" />
+                AI đang đánh giá...
+              </>
+            ) : (
+              <>
+                <Send className="h-4 w-4" />
+                Nộp bài / Flex kết quả
+              </>
+            )}
           </button>
         </div>
       </div>

@@ -8,6 +8,7 @@ import SpeedRebuttalStation from '@/components/stations/SpeedRebuttalStation';
 import SummitAssessmentStation from '@/components/stations/SummitAssessmentStation';
 import { generateRoadmapFeedback, generateDebateEval, getRandomSpamToast } from '@/lib/roadmapFeedback';
 import type { FeedbackContext, RoadmapFeedback } from '@/lib/roadmapFeedback';
+import { evaluateSubmission } from '@/lib/ollama';
 import {
   Mountain,
   Flag,
@@ -700,34 +701,76 @@ function DayDetailModal({
     setTimeout(() => setSpamToast(null), 4000);
   };
 
-  const handleWritingSubmit = () => {
+  const [submitting, setSubmitting] = useState(false);
+
+  const handleWritingSubmit = async () => {
     if (wc < 30) {
       triggerShake();
       return;
     }
+    setSubmitting(true);
     const words = response.toLowerCase().split(/\s+/).filter(Boolean);
     const uniqueWords = new Set(words).size;
     const score = Math.min(40 + wc / 3 + uniqueWords / 2, 100);
     const logicIndex = Math.round(Math.min((score / 100) * 5, 5));
-    const ctx: FeedbackContext = {
-      score: Math.round(score),
-      logicIndex,
-      uniqueWords,
-      totalWords: wc,
-      wpm: 0,
-      debateRounds: 0,
-      fallacyCount: 0,
-      repetitionCount: 0,
-      clicheCount: 0,
-      idleSeconds: 0,
-      tabViolations: 0,
-      userId,
-      timestamp: Date.now(),
-      rawText: response,
-    };
-    const feedback = generateRoadmapFeedback(day.day, ctx);
+
+    // Try Ollama AI evaluation, fall back to template-based feedback
+    let feedback: RoadmapFeedback;
+    try {
+      const aiEval = await evaluateSubmission(response, {
+        depth: Math.round(score),
+        fluency: Math.round(score * 0.8),
+        independence: 70,
+        vocabularyCoherence: Math.round(uniqueWords / wc * 100),
+        speed: 0,
+      }, {
+        common: 0,
+        critical: 0,
+        unique: uniqueWords,
+        total: wc,
+        clicheHits: 0,
+      }, {
+        wordCount: wc,
+        charCount: response.length,
+        wpm: 0,
+        backspaceCount: 0,
+        tabViolations: 0,
+        idleSeconds: 0,
+        durationSeconds: 0,
+      });
+
+      feedback = {
+        depth: `${aiEval.writingStyle} ${aiEval.argumentConsistency}`,
+        vocab: aiEval.repetitiveWords.length > 0
+          ? `Từ lặp lại: ${aiEval.repetitiveWords.join(', ')}. ${aiEval.cliches.length > 0 ? `Sáo rỗng: ${aiEval.cliches.join(', ')}.` : ''}`
+          : aiEval.cliches.length > 0
+            ? `Phát hiện sáo rỗng: ${aiEval.cliches.join(', ')}.`
+            : 'Không phát hiện lặp từ hay sáo rỗng.',
+        advice: `${aiEval.semanticDrift} ${aiEval.overallAssessment}`,
+      };
+    } catch {
+      const ctx: FeedbackContext = {
+        score: Math.round(score),
+        logicIndex,
+        uniqueWords,
+        totalWords: wc,
+        wpm: 0,
+        debateRounds: 0,
+        fallacyCount: 0,
+        repetitionCount: 0,
+        clicheCount: 0,
+        idleSeconds: 0,
+        tabViolations: 0,
+        userId,
+        timestamp: Date.now(),
+        rawText: response,
+      };
+      feedback = generateRoadmapFeedback(day.day, ctx);
+    }
+
     setWritingFeedback(feedback);
     setSubmitted(true);
+    setSubmitting(false);
     onComplete(0, false, { text: response, score: Math.round(score), feedback, type: 'writing' });
   };
 
@@ -968,10 +1011,19 @@ function DayDetailModal({
                   handleWritingSubmit();
                 }
               }}
-              disabled={isDebate ? !canCompleteDebate : !canCompleteWriting}
+              disabled={isDebate ? !canCompleteDebate : (!canCompleteWriting || submitting)}
             >
-              <CheckCircle2 className="h-4 w-4" />
-              Hoàn thành chặng
+              {submitting ? (
+                <>
+                  <RotateCcw className="h-4 w-4 animate-spin" />
+                  AI đang đánh giá...
+                </>
+              ) : (
+                <>
+                  <CheckCircle2 className="h-4 w-4" />
+                  Hoàn thành chặng
+                </>
+              )}
             </Button>
           )}
           {submitted && (
