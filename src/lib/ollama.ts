@@ -27,7 +27,7 @@ export type EvaluationResult = {
 };
 
 async function callOllama(promptText: string): Promise<string> {
- const response = await fetch('https://jake-jumping-bend-specially.trycloudflare.com /api/generate', {
+ const response = await fetch('https://checkout-peer-machinery-directions.trycloudflare.com ', {
     method: 'POST',
     mode: 'cors',
     headers: { 'Content-Type': 'application/json'},
