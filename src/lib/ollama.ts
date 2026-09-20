@@ -29,7 +29,7 @@ export type EvaluationResult = {
 async function callOllama(promptText: string): Promise<string> {
  const response = await fetch('https://assuming-magazines-jury-wind.trycloudflare.com/api/generate', {
     method: 'POST',
-   mode: 'cors',
+    mode: 'cors',
     headers: { 'Content-Type': 'application/json'},
     body: JSON.stringify({
       model: 'qwen2.5:3b',
