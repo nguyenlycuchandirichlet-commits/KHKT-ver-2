@@ -27,9 +27,11 @@ export type EvaluationResult = {
 };
 
 async function callOllama(promptText: string): Promise<string> {
- const response = await fetch('https://blue-symbols-marry.loca.lt', {
+ const response = await fetch('https://blue-symbols-marry.loca.lt/api/generate', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json',
+              'Bypass-Tunnel-Reminder': 'true'
+             },
     body: JSON.stringify({
       model: 'qwen2.5:3b',
       prompt: promptText,
