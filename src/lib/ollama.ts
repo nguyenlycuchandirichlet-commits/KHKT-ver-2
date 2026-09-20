@@ -27,7 +27,7 @@ export type EvaluationResult = {
 };
 
 async function callOllama(promptText: string): Promise<string> {
- const response = await fetch('https://matcher-prance-unnamable.ngrok-free.dev/api/generate', {
+ const response = await fetch('https://blue-symbols-marry.loca.lt', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
