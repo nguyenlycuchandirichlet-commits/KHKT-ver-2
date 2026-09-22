@@ -1,2 +1,5 @@
 [functions.admin-data]
 verify_jwt = false
+
+[functions.gemini-ai]
+verify_jwt = true

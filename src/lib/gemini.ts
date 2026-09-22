@@ -1,0 +1,323 @@
+import type { Scores, Telemetry, VocabStats, FeedbackCard } from './scoring';
+
+export type RoadmapContext = {
+  currentDay: number;
+  overallScore: number;
+  scores: Scores;
+  weaknesses: string[];
+  vocab: VocabStats;
+  telemetry: Telemetry;
+};
+
+export type RoadmapDay = {
+  day: number;
+  title: string;
+  description: string;
+  focus: string;
+  exercises: string[];
+};
+
+export type EvaluationResult = {
+  writingStyle: string;
+  argumentConsistency: string;
+  semanticDrift: string;
+  repetitiveWords: string[];
+  cliches: string[];
+  overallAssessment: string;
+};
+
+export type WritingAssistance = {
+  guidingQuestion: string;
+  repetitiveWords: { word: string; synonyms: string[] }[];
+};
+
+export type DebateResponse = {
+  text: string;
+  stance: 'pro' | 'anti';
+};
+
+export type DebateAnalysis = {
+  sentenceBySentence: { sentence: string; critique: string; rewrite: string }[];
+  overallStrength: string;
+  overallWeakness: string;
+  totalScore: number;
+};
+
+const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL as string;
+const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY as string;
+const FUNCTION_URL = `${SUPABASE_URL}/functions/v1/gemini-ai`;
+
+async function callGemini(prompt: string, systemInstruction?: string): Promise<string> {
+  const res = await fetch(FUNCTION_URL, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+    },
+    body: JSON.stringify({ prompt, systemInstruction }),
+  });
+
+  if (!res.ok) {
+    throw new Error(`Gemini proxy error ${res.status}`);
+  }
+
+  const data = await res.json();
+  if (data.error) throw new Error(data.error);
+  if (!data.response) throw new Error('Empty Gemini response');
+  return data.response as string;
+}
+
+function parseJSON<T>(raw: string): T | null {
+  try {
+    const match = raw.match(/\{[\s\S]*\}/);
+    if (match) return JSON.parse(match[0]) as T;
+    return JSON.parse(raw) as T;
+  } catch {
+    return null;
+  }
+}
+
+// --- Mock fallback data ---
+
+const MOCK_ROADMAP: RoadmapDay[] = [
+  { day: 1, title: 'Khởi động tư duy phản biện', description: 'Làm quen với khái niệm phản biện và viết đoạn mở bài có quan điểm rõ ràng.', focus: 'Mở bài & đặt vấn đề', exercises: ['Viết mở bài 150 từ cho đề tài AI', 'Liệt kê 3 quan điểm trái chiều'] },
+  { day: 2, title: 'Xây dựng luận điểm', description: 'Tập xây dựng luận điểm chính có dẫn chứng cụ thể, tránh lập luận chung chung.', focus: 'Luận điểm & dẫn chứng', exercises: ['Viết 2 luận điểm có dẫn chứng', 'Phân tích 1 dẫn chứng thực tế'] },
+  { day: 3, title: 'Phản bác & đối đầu', description: 'Rèn kỹ năng phản bác luận điểm đối lập một cách sắc bén, không né tránh.', focus: 'Phản bác & tranh luận', exercises: ['Viết 1 phản bác cho luận điểm trái chiều', 'Tự phản bác lại chính mình'] },
+  { day: 4, title: 'Chiều sâu phân tích', description: 'Đào sâu vấn đề thay vì lướt bề nổi, bóc tách nhiều tầng ý nghĩa.', focus: 'Phân tích đa chiều', exercises: ['Phân tích 1 vấn đề từ 3 góc nhìn', 'Viết đoạn phân tích 200 từ'] },
+  { day: 5, title: 'Vốn từ phản biện', description: 'Mở rộng vốn từ học thuật và phản biện, tránh lặp từ và văn sáo rỗng.', focus: 'Từ vựng & diễn đạt', exercises: ['Thay 10 từ thông dụng bằng từ học thuật', 'Viết đoạn không lặp từ'] },
+  { day: 6, title: 'Tổng hợp & kết luận', description: 'Rèn kỹ năng tổng hợp ý tưởng và viết kết luận có sức nặng, không sáo rỗng.', focus: 'Kết bài & tổng hợp', exercises: ['Viết kết bài 150 từ', 'Tổng hợp 3 luận điểm thành 1 đoạn'] },
+  { day: 7, title: 'Bài viết hoàn chỉnh', description: 'Viết một bài nghị luận hoàn chỉnh 400+ từ, áp dụng toàn bộ kỹ năng đã rèn.', focus: 'Bài viết tổng hợp', exercises: ['Viết bài hoàn chỉnh 400+ từ', 'Tự chấm điểm theo 5 tiêu chí'] },
+];
+
+function buildMockEvaluation(text: string, scores: Scores, vocab: VocabStats, telemetry: Telemetry): EvaluationResult {
+  const repeated = new Map<string, number>();
+  const words = text.toLowerCase().replace(/[^\p{L}\s]/gu, ' ').split(/\s+/).filter(Boolean);
+  const common = new Set(['như', 'của', 'và', 'là', 'cho', 'một', 'có', 'không', 'đó', 'này', 'với', 'được', 'trong', 'khi', 'các', 'người', 'để', 'cũng', 'sẽ', 'theo', 'từ', 'rất', 'nhiều', 'làm', 'nên', 'về', 'mà', 'thì', 'đã', 'những', 'gì', 'ai', 'đi', 'lên', 'xuống', 'vào', 'ra', 'tốt', 'xấu', 'hay', 'đẹp', 'to', 'nhỏ', 'cao', 'thấp', 'thật', 'quá', 'lắm', 'hơn', 'nhất']);
+  for (const w of words) {
+    if (w.length < 4 || common.has(w)) continue;
+    repeated.set(w, (repeated.get(w) || 0) + 1);
+  }
+  const repetitiveWords = Array.from(repeated.entries()).filter(([, c]) => c >= 3).sort((a, b) => b[1] - a[1]).slice(0, 5).map(([w]) => w);
+
+  const clichePhrases = ['trong thời đại ngày nay', 'trong xã hội hiện đại', 'như chúng ta đã biết', 'nói chung', 'tóm lại', 'điều này cho thấy', 'từ xưa đến nay', 'thời đại 4.0', 'đón đầu xu thế', 'không thể phủ nhận', 'đóng vai trò quan trọng', 'trong bối cảnh', 'mang lại nhiều lợi ích'];
+  const lower = text.toLowerCase();
+  const cliches = clichePhrases.filter(p => lower.includes(p));
+
+  const styleScore = scores.fluency;
+  const argScore = scores.depth;
+  const driftScore = scores.independence;
+
+  const writingStyle = styleScore >= 70 ? `Văn phong trôi chảy (điểm ${styleScore}/100), cấu trúc câu đa dạng và giữ được mạch văn ổn định.` : styleScore >= 40 ? `Văn phong ở mức trung bình (điểm ${styleScore}/100), cần đa dạng cấu trúc câu và giảm tỷ lệ xoá.` : `Văn phong yếu (điểm ${styleScore}/100), câu văn lủng củng, cần rèn thêm nhịp điệu hành văn.`;
+  const argumentConsistency = argScore >= 70 ? `Lập luận nhất quán (điểm ${argScore}/100), luận điểm được duy trì xuyên suốt, dẫn chứng phù hợp.` : argScore >= 40 ? `Lập luận tương đối nhất quán (điểm ${argScore}/100), một số đoạn bị chệch hướng, cần liên kết ý chặt chẽ hơn.` : `Lập luận thiếu nhất quán (điểm ${argScore}/100), các luận điểm rời rạc, cần xây dựng dàn ý trước khi viết.`;
+  const semanticDrift = driftScore >= 70 ? `Tính độc lập cao (điểm ${driftScore}/100), không phát hiện dấu hiệu lệ thuộc AI đáng kể.` : driftScore >= 40 ? `Tính độc lập trung bình (điểm ${driftScore}/100), ${telemetry.tabViolations > 0 ? `phát hiện ${telemetry.tabViolations} lần chuyển tab` : 'một số đoạn có dấu hiệu văn mẫu'}.` : `Tính độc lập thấp (điểm ${driftScore}/100), phát hiện dấu hiệu lệ thuộc AI: ${telemetry.tabViolations > 0 ? `${telemetry.tabViolations} lần chuyển tab, ` : ''}thời gian ngưng gõ ${telemetry.idleSeconds}s, văn phong rập khuôn.`;
+
+  return {
+    writingStyle,
+    argumentConsistency,
+    semanticDrift,
+    repetitiveWords,
+    cliches,
+    overallAssessment: `Bài viết đạt tổng điểm ${Math.round((styleScore + argScore + driftScore + scores.vocabularyCoherence + scores.speed) / 5)}/100. ${repetitiveWords.length > 0 ? `Phát hiện ${repetitiveWords.length} từ lặp lại: ${repetitiveWords.join(', ')}.` : 'Không phát hiện lặp từ nghiêm trọng.'} ${cliches.length > 0 ? `Phát hiện ${cliches.length} cụm sáo rỗng.` : 'Không phát hiện sáo rỗng.'}`,
+  };
+}
+
+const MOCK_GUIDING_QUESTIONS = [
+  'Bạn có thể lập luận từ một góc nhìn khác không?',
+  'Đâu là bằng chứng mạnh nhất cho luận điểm của bạn?',
+  'Có thể có phản biện nào cho ý này không?',
+  'Bạn đang dùng "từ khoá" hay đang thực sự diễn đạt tư duy?',
+  'Hãy thử thay "tốt/xấu" bằng một từ cụ thể hơn.',
+  'Người đọc chưa quen đề tài sẽ hiểu đoạn này thế nào?',
+  'Luận điểm chính của bạn có bị lặp không? Hãy mở rộng.',
+  'Bạn có đang kết luận quá sớm? Cần thêm phân tích gì?',
+  'Đoạn này nghe có vẻ giống văn mẫu AI — bạn có thể diễn đạt lại bằng giọng văn của riêng mình?',
+  'Thử thay cụm "trong thời đại ngày nay" bằng một quan sát cụ thể hơn.',
+  'Bạn đang viết điều mình nghĩ, hay đang viết điều AI nghĩ thay bạn?',
+];
+
+// --- Public API ---
+
+export async function generateRoadmap(ctx: RoadmapContext): Promise<RoadmapDay[]> {
+  const weaknessesStr = ctx.weaknesses.length > 0 ? ctx.weaknesses.join(', ') : 'chưa xác định rõ điểm yếu';
+  const prompt = `Bạn là chuyên gia giáo dục thiết kế lộ trình 7 ngày rèn tư duy phản biện cho học sinh THPT.
+
+Thông tin học sinh:
+- Ngày hiện tại: ${ctx.currentDay}/7
+- Tổng điểm gần nhất: ${ctx.overallScore}/100
+- Điểm chiều sâu: ${ctx.scores.depth}/100
+- Điểm diễn đạt: ${ctx.scores.fluency}/100
+- Điểm độc lập: ${ctx.scores.independence}/100
+- Điểm từ vựng: ${ctx.scores.vocabularyCoherence}/100
+- Điểm tốc độ: ${ctx.scores.speed}/100
+- Điểm yếu cần khắc phục: ${weaknessesStr}
+- Số từ độc nhất: ${ctx.vocab.unique}/${ctx.vocab.total}
+- Tốc độ viết: ${ctx.telemetry.wpm} từ/phút
+
+Hãy tạo lộ trình 7 ngày bắt đầu từ ngày ${ctx.currentDay}, mỗi ngày có tiêu đề, mô tả, trọng tâm và 2 bài tập. Trả về JSON theo định dạng:
+{"roadmap": [{"day": 1, "title": "...", "description": "...", "focus": "...", "exercises": ["...", "..."]}]}
+Chỉ trả về JSON, không thêm giải thích.`;
+
+  try {
+    const raw = await callGemini(prompt, 'Bạn là trợ lý AI giáo dục tiếng Việt chuyên thiết kế lộ trình học tập.');
+    const parsed = parseJSON<{ roadmap: RoadmapDay[] }>(raw);
+    if (parsed?.roadmap && Array.isArray(parsed.roadmap) && parsed.roadmap.length > 0) {
+      return parsed.roadmap.slice(0, 7);
+    }
+    return MOCK_ROADMAP;
+  } catch {
+    return MOCK_ROADMAP;
+  }
+}
+
+export async function evaluateSubmission(
+  text: string,
+  scores: Scores,
+  vocab: VocabStats,
+  telemetry: Telemetry,
+): Promise<EvaluationResult> {
+  const prompt = `Bạn là giám khảo chấm bài nghị luận tư duy phản biện học sinh THPT theo tiêu chí KHKT.
+
+Bài viết của học sinh:
+"""
+${text.slice(0, 2000)}
+"""
+
+Thông số:
+- Điểm chiều sâu: ${scores.depth}/100
+- Điểm diễn đạt: ${scores.fluency}/100
+- Điểm độc lập: ${scores.independence}/100
+- Điểm từ vựng: ${scores.vocabularyCoherence}/100
+- Điểm tốc độ: ${scores.speed}/100
+- Số từ: ${telemetry.wordCount}, từ độc nhất: ${vocab.unique}
+- Tốc độ: ${telemetry.wpm} từ/phút, chuyển tab: ${telemetry.tabViolations} lần
+- Cliché phát hiện: ${vocab.clicheHits}
+
+Hãy đánh giá theo các tiêu chí sau:
+1. writingStyle: Phong cách viết (cấu trúc câu, nhịp điệu, mạch văn)
+2. argumentConsistency: Tính nhất quán lập luận (luận điểm có duy trì không, dẫn chứng phù hợp không)
+3. semanticDrift: Phụ thuộc AI (Semantic Drift) — phát hiện dấu hiệu văn mẫu, lối mòn, phụ thuộc công cụ
+4. repetitiveWords: Mảng các từ bị lặp lại nhiều lần (từ thực, bỏ qua từ thông dụng)
+5. cliches: Mảng các cụm từ sáo rỗng hoặc boilerplate AI phát hiện
+6. overallAssessment: Đánh giá tổng quan 2-3 câu
+
+Trả về JSON theo định dạng:
+{"writingStyle": "...", "argumentConsistency": "...", "semanticDrift": "...", "repetitiveWords": ["..."], "cliches": ["..."], "overallAssessment": "..."}
+Chỉ trả về JSON, không thêm giải thích.`;
+
+  try {
+    const raw = await callGemini(prompt, 'Bạn là trợ lý AI đánh giá bài viết tiếng Việt.');
+    const parsed = parseJSON<EvaluationResult>(raw);
+    if (parsed && parsed.writingStyle && parsed.argumentConsistency) {
+      return parsed;
+    }
+    return buildMockEvaluation(text, scores, vocab, telemetry);
+  } catch {
+    return buildMockEvaluation(text, scores, vocab, telemetry);
+  }
+}
+
+export async function getWritingAssistance(text: string): Promise<WritingAssistance> {
+  if (text.trim().length < 20) {
+    return { guidingQuestion: MOCK_GUIDING_QUESTIONS[Math.floor(Math.random() * MOCK_GUIDING_QUESTIONS.length)], repetitiveWords: [] };
+  }
+
+  const prompt = `Bạn là trợ lý AI giúp học sinh đang viết bài nghị luận. Phân tích đoạn văn sau và:
+1. Đưa ra MỘT câu hỏi gợi mở tư duy ngắn (không quá 25 từ) để giúp học sinh tập trung và tránh "Popcorn Brain" (tư duy phân tán).
+2. Phát hiện từ/cụm từ bị lặp lại nhiều lần (từ thực, bỏ qua từ thông dụng) và gợi ý 2-3 từ đồng nghĩa sâu hơn cho mỗi từ.
+
+Đoạn văn:
+"""
+${text.slice(0, 1000)}
+"""
+
+Trả về JSON:
+{"guidingQuestion": "...", "repetitiveWords": [{"word": "...", "synonyms": ["...", "..."]}]}
+Chỉ trả về JSON, không thêm giải thích.`;
+
+  try {
+    const raw = await callGemini(prompt, 'Bạn là trợ lý AI giáo dục tiếng Việt, giúp học sinh tập trung khi viết.');
+    const parsed = parseJSON<WritingAssistance>(raw);
+    if (parsed && parsed.guidingQuestion) {
+      return parsed;
+    }
+    return { guidingQuestion: MOCK_GUIDING_QUESTIONS[Math.floor(Math.random() * MOCK_GUIDING_QUESTIONS.length)], repetitiveWords: [] };
+  } catch {
+    return { guidingQuestion: MOCK_GUIDING_QUESTIONS[Math.floor(Math.random() * MOCK_GUIDING_QUESTIONS.length)], repetitiveWords: [] };
+  }
+}
+
+export async function getDebateResponse(
+  userStance: 'pro' | 'anti',
+  userArgument: string,
+  topic: string,
+): Promise<DebateResponse> {
+  const aiStance: 'pro' | 'anti' = userStance === 'pro' ? 'anti' : 'pro';
+  const stanceDesc = aiStance === 'pro'
+    ? 'Bạn ủng hộ AI, bảo vệ lợi ích của AI trong giáo dục và đời sống.'
+    : 'Bạn phản đối sự phụ thuộc AI, chỉ ra rủi ro teo nhỏ tư duy, mất độc lập, trôi dạt nhận thức.';
+
+  const prompt = `Bạn đang tham gia một cuộc tranh luận về AI với học sinh THPT.
+Chủ đề: ${topic}
+Vai trò của bạn: ${stanceDesc}
+
+Lập luận của học sinh (phe ${userStance === 'pro' ? 'ủng hộ AI' : 'phản đối AI'}):
+"""
+${userArgument}
+"""
+
+Hãy phản bác lại lập luận của học sinh một cách sắc bén, có dẫn chứng, bằng tiếng Việt. Không quá 100 từ. Chỉ viết phản bác, không thêm lời mở đầu.`;
+
+  try {
+    const raw = await callGemini(prompt, 'Bạn là AI tranh luận vai ' + (aiStance === 'pro' ? 'ủng hộ AI' : 'phản đối AI') + ' trong tiếng Việt.');
+    return { text: raw.trim(), stance: aiStance };
+  } catch {
+    const fallback = aiStance === 'pro'
+      ? 'AI là công cụ, không phải kẻ thù. Việc cấm AI là chối bỏ thực tại — điều quan trọng là học cách dùng nó có trách nhiệm, không phải trốn chạy.'
+      : 'Khi bạn dùng AI để tranh luận, bạn đang để AI nghĩ thay mình. Đó chính là sự trôi dạt nhận thức mà bạn cần cảnh giác.';
+    return { text: fallback, stance: aiStance };
+  }
+}
+
+export async function analyzeDebate(transcript: string): Promise<DebateAnalysis> {
+  const prompt = `Bạn là giám khảo đánh giá cuộc tranh luận về AI của học sinh THPT. Phân tích bài tranh luận sau TỪNG CÂU MỘT (nhận xét từng câu một), chỉ ra điểm yếu và viết lại câu đó mạnh mẽ hơn.
+
+Bài tranh luận của học sinh:
+"""
+${transcript.slice(0, 2000)}
+"""
+
+Trả về JSON:
+{"sentenceBySentence": [{"sentence": "...", "critique": "...", "rewrite": "..."}], "overallStrength": "...", "overallWeakness": "...", "totalScore": 75}
+Chỉ trả về JSON, không thêm giải thích.`;
+
+  try {
+    const raw = await callGemini(prompt, 'Bạn là giám khảo tranh luận tiếng Việt, đánh giá từng câu lập luận.');
+    const parsed = parseJSON<DebateAnalysis>(raw);
+    if (parsed && parsed.sentenceBySentence && Array.isArray(parsed.sentenceBySentence)) {
+      return parsed;
+    }
+    return mockDebateAnalysis(transcript);
+  } catch {
+    return mockDebateAnalysis(transcript);
+  }
+}
+
+function mockDebateAnalysis(transcript: string): DebateAnalysis {
+  const sentences = transcript.split(/[.!?]+/).map(s => s.trim()).filter(s => s.length > 10);
+  return {
+    sentenceBySentence: sentences.slice(0, 8).map(s => ({
+      sentence: s,
+      critique: 'Lập luận cần thêm dẫn chứng cụ thể để thuyết phục hơn.',
+      rewrite: s + ' Ví dụ cụ thể: nghiên cứu gần đây cho thấy...',
+    })),
+    overallStrength: 'Học sinh có ý tưởng phản biện tốt, dám đối đầu quan điểm đối lập.',
+    overallWeakness: 'Thiếu dẫn chứng cụ thể, một số lập luận còn chung chung.',
+    totalScore: 65,
+  };
+}
+
+export function isGeminiAvailable(): boolean {
+  return true;
+}
+
+export { buildMockEvaluation, MOCK_ROADMAP };

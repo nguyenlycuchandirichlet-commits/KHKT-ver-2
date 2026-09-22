@@ -43,7 +43,7 @@ export type EssayResult = {
   violationReason: string;
   rankPoints: number;
   feedback: FeedbackCard[];
-  aiEvaluation?: import('./ollama').EvaluationResult;
+  aiEvaluation?: import('./gemini').EvaluationResult;
 };
 
 export type Badge = {

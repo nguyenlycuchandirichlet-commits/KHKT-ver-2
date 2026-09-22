@@ -9,7 +9,7 @@ import {
   type Telemetry,
   type EssayResult,
 } from '@/lib/scoring';
-import { evaluateSubmission, type EvaluationResult } from '@/lib/ollama';
+import { evaluateSubmission, getWritingAssistance, type EvaluationResult, type WritingAssistance } from '@/lib/gemini';
 import { Button } from '@/components/ui';
 import {
   Clock,
@@ -77,6 +77,8 @@ export default function EssayWorkspace({
     { id: number; text: string }[]
   >([]);
   const socraticIdRef = useRef(0);
+  const [geminiSynonyms, setGeminiSynonyms] = useState<{ word: string; synonyms: string[] }[]>([]);
+  const geminiTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Anti-spam shake + toast
   const [shake, setShake] = useState(false);
@@ -89,6 +91,30 @@ export default function EssayWorkspace({
 
   useEffect(() => {
     textRef.current = text;
+  }, [text]);
+
+  // Real-time Gemini writing assistance — debounced
+  useEffect(() => {
+    if (geminiTimerRef.current) clearTimeout(geminiTimerRef.current);
+    if (text.trim().length < 30) {
+      setGeminiSynonyms([]);
+      return;
+    }
+    geminiTimerRef.current = setTimeout(async () => {
+      try {
+        const assistance: WritingAssistance = await getWritingAssistance(text);
+        if (assistance.repetitiveWords && assistance.repetitiveWords.length > 0) {
+          setGeminiSynonyms(assistance.repetitiveWords.slice(0, 5));
+        } else {
+          setGeminiSynonyms([]);
+        }
+      } catch {
+        setGeminiSynonyms([]);
+      }
+    }, 8000);
+    return () => {
+      if (geminiTimerRef.current) clearTimeout(geminiTimerRef.current);
+    };
   }, [text]);
 
   // Countdown timer + idle detection
@@ -110,18 +136,25 @@ export default function EssayWorkspace({
         setIdleSeconds(idleRef.current);
 
         if (idleFor > IDLE_THRESHOLD && idleFor % IDLE_THRESHOLD === 0) {
-          const templates = detectTemplates(textRef.current);
-          let msg = SOCRATIC_PROMPTS[Math.floor(Math.random() * SOCRATIC_PROMPTS.length)];
-          if (templates.length > 0) {
-            const lastTemplate = templates[templates.length - 1];
-            const challenge = TEMPLATE_CHALLENGES[lastTemplate.phrase];
-            if (challenge) msg = challenge;
-          }
-          socraticIdRef.current += 1;
-          setSocraticMsgs((prev) => [
-            ...prev.slice(-3),
-            { id: socraticIdRef.current, text: msg },
-          ]);
+          // Use Gemini for dynamic guiding questions instead of random prompts
+          (async () => {
+            try {
+              const assistance = await getWritingAssistance(textRef.current);
+              const msg = assistance.guidingQuestion;
+              socraticIdRef.current += 1;
+              setSocraticMsgs((prev) => [...prev.slice(-3), { id: socraticIdRef.current, text: msg }]);
+            } catch {
+              const templates = detectTemplates(textRef.current);
+              let msg = SOCRATIC_PROMPTS[Math.floor(Math.random() * SOCRATIC_PROMPTS.length)];
+              if (templates.length > 0) {
+                const lastTemplate = templates[templates.length - 1];
+                const challenge = TEMPLATE_CHALLENGES[lastTemplate.phrase];
+                if (challenge) msg = challenge;
+              }
+              socraticIdRef.current += 1;
+              setSocraticMsgs((prev) => [...prev.slice(-3), { id: socraticIdRef.current, text: msg }]);
+            }
+          })();
         }
       }
     }, 1000);
@@ -459,6 +492,24 @@ export default function EssayWorkspace({
                 <span className="text-amber-600/70 dark:text-amber-400/70">
                   — thử thay bằng từ đồng nghĩa sâu hơn
                 </span>
+              </div>
+            )}
+            {/* Gemini-powered synonym suggestions */}
+            {geminiSynonyms.length > 0 && (
+              <div className="mt-2 flex flex-wrap items-start gap-2 rounded-xl bg-violet-50/80 p-3 text-xs dark:bg-violet-900/20">
+                <span className="flex items-center gap-1 font-semibold text-violet-700 dark:text-violet-400">
+                  <Sparkles className="h-3.5 w-3.5" />
+                  Gemini gợi ý từ đồng nghĩa:
+                </span>
+                {geminiSynonyms.map((s, i) => (
+                  <span key={i} className="inline-flex items-center gap-1 rounded-full bg-violet-100 px-2 py-0.5 dark:bg-violet-900/40">
+                    <span className="font-medium text-violet-700 dark:text-violet-400">{s.word}</span>
+                    <span className="text-violet-400">→</span>
+                    {s.synonyms.map((syn, j) => (
+                      <span key={j} className="text-violet-600 dark:text-violet-300">{syn}{j < s.synonyms.length - 1 ? ', ' : ''}</span>
+                    ))}
+                  </span>
+                ))}
               </div>
             )}
             {/* AI template detection warning */}

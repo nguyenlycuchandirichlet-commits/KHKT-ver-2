@@ -8,7 +8,7 @@ import SpeedRebuttalStation from '@/components/stations/SpeedRebuttalStation';
 import SummitAssessmentStation from '@/components/stations/SummitAssessmentStation';
 import { generateRoadmapFeedback, generateDebateEval, getRandomSpamToast } from '@/lib/roadmapFeedback';
 import type { FeedbackContext, RoadmapFeedback } from '@/lib/roadmapFeedback';
-import { evaluateSubmission } from '@/lib/ollama';
+import { evaluateSubmission, getDebateResponse, analyzeDebate, type DebateAnalysis } from '@/lib/gemini';
 import {
   Mountain,
   Flag,
@@ -613,10 +613,12 @@ function DayDetailModal({
   const [debateMsgs, setDebateMsgs] = useState<DebateMessage[]>([]);
   const [debateInput, setDebateInput] = useState('');
   const [debateRounds, setDebateRounds] = useState(progress?.debateRounds || 0);
-  const [debateEval, setDebateEval] = useState<DebateEval | null>(null);
+  const [debateEval, setDebateEval] = useState<DebateAnalysis | null>(null);
   const [evaluating, setEvaluating] = useState(false);
   const [currentTurn, setCurrentTurn] = useState<'pro' | 'anti'>('pro');
   const [writingFeedback, setWritingFeedback] = useState<RoadmapFeedback | null>(null);
+  const [debateSide, setDebateSide] = useState<'pro' | 'anti' | null>(null);
+  const [aiThinking, setAiThinking] = useState(false);
 
   const isDebate = day.type === 'debate';
   const isTemplate = day.type === 'challenge';
@@ -624,70 +626,68 @@ function DayDetailModal({
   const isSummit = day.type === 'summit';
 
   const startDebate = () => {
-    const firstArg = day.day >= 5
-      ? ADVANCED_DEBATE_TOPICS[0]
-      : PRO_AI_ARGUMENTS[0];
-    setDebateMsgs([{ role: 'pro', text: firstArg }]);
-    setCurrentTurn('anti');
+    setDebateMsgs([{ role: 'pro', text: 'Hãy chọn phe của bạn để bắt đầu tranh luận!' }]);
   };
 
-  const submitDebateArg = () => {
-    if (!debateInput.trim()) return;
-    const newMsgs: DebateMessage[] = [...debateMsgs, { role: 'student', text: debateInput }];
+  const chooseSide = (side: 'pro' | 'anti') => {
+    setDebateSide(side);
+    const topic = day.day >= 5 ? ADVANCED_DEBATE_TOPICS[0] : 'AI có nên được sử dụng trong giáo dục?';
+    const aiStance = side === 'pro' ? 'anti' : 'pro';
+    const aiOpening = aiStance === 'pro'
+      ? 'AI là công cụ hỗ trợ mạnh mẽ cho học tập. Tại sao phải từ chối một công cụ giúp con người hiệu quả hơn?'
+      : 'Việc phụ thuộc AI làm học sinh mất khả năng tự diễn đạt — đó là sự trôi dạt nhận thức đáng lo ngại.';
+    setDebateMsgs([{ role: aiStance, text: aiOpening }]);
+  };
+
+  const submitDebateArg = async () => {
+    if (!debateInput.trim() || !debateSide) return;
+    const userArg = debateInput;
+    const newMsgs: DebateMessage[] = [...debateMsgs, { role: 'student', text: userArg }];
+    setDebateMsgs(newMsgs);
     setDebateInput('');
     const newRounds = debateRounds + 1;
     setDebateRounds(newRounds);
+    setAiThinking(true);
 
-    const aiArgs = currentTurn === 'pro' ? ANTI_AI_ARGUMENTS : PRO_AI_ARGUMENTS;
-    const aiArg = aiArgs[newRounds % aiArgs.length];
-    newMsgs.push({ role: currentTurn === 'pro' ? 'anti' : 'pro', text: aiArg });
-    setDebateMsgs(newMsgs);
-    setCurrentTurn(currentTurn === 'pro' ? 'anti' : 'pro');
+    const topic = day.day >= 5 ? ADVANCED_DEBATE_TOPICS[0] : 'AI có nên được sử dụng trong giáo dục?';
+    try {
+      const response = await getDebateResponse(debateSide, userArg, topic);
+      newMsgs.push({ role: response.stance, text: response.text });
+      setDebateMsgs([...newMsgs]);
+    } catch {
+      const aiStance = debateSide === 'pro' ? 'anti' : 'pro';
+      const fallback = aiStance === 'pro'
+        ? 'AI giúp học sinh tiếp cận thông tin nhanh hơn — tại sao phải từ chối một công cụ tăng hiệu suất?'
+        : 'Khi học sinh dùng AI để viết, họ mất khả năng tự diễn đạt — đó là sự trôi dạt nhận thức.';
+      newMsgs.push({ role: aiStance, text: fallback });
+      setDebateMsgs([...newMsgs]);
+    }
+    setAiThinking(false);
   };
 
-  const evaluateDebate = () => {
+  const evaluateDebate = async () => {
     setEvaluating(true);
-    setTimeout(() => {
-      const studentArgs = debateMsgs.filter(m => m.role === 'student');
-      const totalText = studentArgs.map(m => m.text).join(' ');
+    const studentArgs = debateMsgs.filter(m => m.role === 'student');
+    const totalText = studentArgs.map(m => m.text).join(' ');
+    try {
+      const analysis = await analyzeDebate(totalText);
+      setDebateEval(analysis);
+    } catch {
+      // Fallback to local scoring
       const wc = totalText.trim().split(/\s+/).filter(Boolean).length;
-      const uniqueWords = new Set(totalText.toLowerCase().split(/\s+/).filter(Boolean)).size;
-
       const logicScore = Math.min(40 + wc / 10 + debateRounds * 8, 100);
-      const vocabScore = Math.min(35 + wc / 8 + (totalText.match(/phản biện|luận điểm|bằng chứng|suy luận|mâu thuẫn/gi) || []).length * 12, 100);
-      const depthScore = Math.min(30 + wc / 6 + debateRounds * 10, 100);
-      const total = Math.round((logicScore + vocabScore + depthScore) / 3);
-      const logicIndex = Math.round(Math.min((logicScore / 100) * 5, 5));
-
-      const ctx: FeedbackContext = {
-        score: total,
-        logicIndex,
-        uniqueWords,
-        totalWords: wc,
-        wpm: 0,
-        debateRounds,
-        fallacyCount: 0,
-        repetitionCount: 0,
-        clicheCount: 0,
-        idleSeconds: 0,
-        tabViolations: 0,
-        userId,
-        timestamp: Date.now(),
-        rawText: totalText,
-      };
-      const evalResult = generateDebateEval(ctx);
-
       setDebateEval({
-        logic: Math.round(logicScore),
-        vocab: Math.round(vocabScore),
-        depth: Math.round(depthScore),
-        total,
-        strengths: evalResult.strengths,
-        weaknesses: evalResult.weaknesses,
-        suggestion: evalResult.suggestion,
+        sentenceBySentence: studentArgs.flatMap(m => m.text.split(/[.!?]+/).filter(s => s.trim().length > 10).slice(0, 3)).slice(0, 8).map(s => ({
+          sentence: s.trim(),
+          critique: 'Lập luận cần thêm dẫn chứng cụ thể.',
+          rewrite: s.trim() + ' Ví dụ cụ thể: nghiên cứu gần đây cho thấy...',
+        })),
+        overallStrength: 'Học sinh có ý tưởng phản biện tốt.',
+        overallWeakness: 'Thiếu dẫn chứng cụ thể.',
+        totalScore: Math.round(logicScore),
       });
-      setEvaluating(false);
-    }, 1500);
+    }
+    setEvaluating(false);
   };
 
   const canCompleteDebate = debateRounds >= 2 && debateEval !== null;
@@ -831,16 +831,22 @@ function DayDetailModal({
                 <div className="rounded-xl bg-slate-50 p-6 text-center dark:bg-slate-800/50">
                   <Swords className="mx-auto mb-3 h-10 w-10 text-red-500" />
                   <p className="mb-4 text-sm text-slate-600 dark:text-slate-300">
-                    Sẵn sàng tranh luận với hai phe AI?
+                    Sẵn sàng tranh luận với AI?
                     <br />
-                    <strong>Phe Pro-AI</strong> bảo vệ AI, <strong>Phe Anti-AI</strong> chỉ ra rủi ro.
+                    Chọn phe của bạn — <strong>Pro-AI</strong> (bảo vệ AI) hoặc <strong>Anti-AI</strong> (phản đối AI).
                     <br />
-                    Nhiệm vụ: phản biện lại cả hai phe.
+                    Gemini sẽ đóng vai phe đối lập và phản bác bạn trong thời gian thực.
                   </p>
-                  <Button onClick={startDebate}>
-                    <Swords className="h-4 w-4" />
-                    Bắt đầu tranh luận
-                  </Button>
+                  <div className="flex justify-center gap-3">
+                    <Button variant="secondary" onClick={() => chooseSide('pro')} className="!px-6">
+                      <Bot className="h-4 w-4 text-blue-500" />
+                      Pro-AI
+                    </Button>
+                    <Button variant="secondary" onClick={() => chooseSide('anti')} className="!px-6">
+                      <Bot className="h-4 w-4 text-red-500" />
+                      Anti-AI
+                    </Button>
+                  </div>
                 </div>
               ) : (
                 <>
@@ -876,8 +882,8 @@ function DayDetailModal({
                       placeholder="Nhập lập luận phản biện..."
                       className="flex-1 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm outline-none focus:border-brand-400 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200"
                     />
-                    <Button onClick={submitDebateArg} className="!px-4">
-                      <Send className="h-4 w-4" />
+                    <Button onClick={submitDebateArg} disabled={aiThinking} className="!px-4">
+                      {aiThinking ? <RotateCcw className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
                     </Button>
                   </div>
 
@@ -887,7 +893,7 @@ function DayDetailModal({
                     </span>
                     {debateRounds >= 2 && !debateEval && (
                       <Button variant="secondary" onClick={evaluateDebate} disabled={evaluating} className="!py-1.5 !text-xs">
-                        {evaluating ? 'AI đang đánh giá...' : 'Yêu cầu AI đánh giá'}
+                        {evaluating ? 'Gemini đang phân tích...' : 'Yêu cầu Gemini đánh giá từng câu'}
                       </Button>
                     )}
                   </div>
@@ -896,21 +902,24 @@ function DayDetailModal({
                     <div className="rounded-xl border-2 border-amber-200 bg-amber-50/80 p-4 dark:border-amber-800/50 dark:bg-amber-900/20">
                       <div className="mb-3 flex items-center gap-2">
                         <Award className="h-5 w-5 text-amber-600 dark:text-amber-400" />
-                        <p className="text-sm font-bold text-amber-800 dark:text-amber-300">Bảng đánh giá phản biện</p>
+                        <p className="text-sm font-bold text-amber-800 dark:text-amber-300">Phân tích từng câu — Gemini</p>
                       </div>
-                      <div className="mb-3 grid grid-cols-3 gap-2">
-                        <EvalScore label="Logic" score={debateEval.logic} />
-                        <EvalScore label="Từ vựng" score={debateEval.vocab} />
-                        <EvalScore label="Độ sâu" score={debateEval.depth} />
+                      <div className="mb-3 space-y-2 max-h-[200px] overflow-y-auto">
+                        {debateEval.sentenceBySentence.map((s, i) => (
+                          <div key={i} className="rounded-lg bg-white/60 p-2 text-xs dark:bg-slate-800/40">
+                            <p className="font-semibold text-slate-700 dark:text-slate-200">"{s.sentence}"</p>
+                            <p className="text-red-500 dark:text-red-400">→ {s.critique}</p>
+                            <p className="text-emerald-600 dark:text-emerald-400">✦ {s.rewrite}</p>
+                          </div>
+                        ))}
                       </div>
                       <div className="space-y-2 text-xs">
-                        <p className="text-emerald-700 dark:text-emerald-400"><strong>Điểm mạnh:</strong> {debateEval.strengths}</p>
-                        <p className="text-red-600 dark:text-red-400"><strong>Lỗ hổng:</strong> {debateEval.weaknesses}</p>
-                        <p className="text-brand-600 dark:text-brand-400"><strong>Gợi ý:</strong> {debateEval.suggestion}</p>
+                        <p className="text-emerald-700 dark:text-emerald-400"><strong>Điểm mạnh:</strong> {debateEval.overallStrength}</p>
+                        <p className="text-red-600 dark:text-red-400"><strong>Lỗ hổng:</strong> {debateEval.overallWeakness}</p>
                       </div>
                       <div className="mt-3 rounded-lg bg-amber-200/50 px-3 py-2 text-center dark:bg-amber-800/30">
                         <span className="text-lg font-bold text-amber-800 dark:text-amber-300">
-                          Tổng điểm: {debateEval.total}/100
+                          Tổng điểm: {debateEval.totalScore}/100
                         </span>
                       </div>
                     </div>
@@ -991,8 +1000,8 @@ function DayDetailModal({
                   const studentArgs = debateMsgs.filter(m => m.role === 'student');
                   const totalText = studentArgs.map(m => m.text).join(' ');
                   const feedback = generateRoadmapFeedback(day.day, {
-                    score: debateEval?.total || 0,
-                    logicIndex: Math.round(Math.min(((debateEval?.logic || 0) / 100) * 5, 5)),
+                    score: debateEval?.totalScore || 0,
+                    logicIndex: Math.round(Math.min(((debateEval?.totalScore || 0) / 100) * 5, 5)),
                     uniqueWords: new Set(totalText.toLowerCase().split(/\s+/).filter(Boolean)).size,
                     totalWords: totalText.trim().split(/\s+/).filter(Boolean).length,
                     wpm: 0,
@@ -1006,7 +1015,7 @@ function DayDetailModal({
                     timestamp: Date.now(),
                     rawText: totalText,
                   });
-                  onComplete(debateRounds, !!debateEval, { text: totalText, score: debateEval?.total || 0, feedback, type: 'debate' });
+                  onComplete(debateRounds, !!debateEval, { text: totalText, score: debateEval?.totalScore || 0, feedback, type: 'debate' });
                 } else {
                   handleWritingSubmit();
                 }

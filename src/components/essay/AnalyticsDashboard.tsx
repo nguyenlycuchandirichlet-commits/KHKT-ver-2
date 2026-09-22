@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import type { EssayResult, Scores, Badge, FeedbackCard } from '@/lib/scoring';
-import type { EvaluationResult } from '@/lib/ollama';
+import type { EvaluationResult } from '@/lib/gemini';
 import { getRankTier, getDynamicFeedbackEmojiAnimated } from '@/lib/scoring';
 import RadarChart from '@/components/charts/RadarChart';
 import StackedBarChart from '@/components/charts/StackedBarChart';
